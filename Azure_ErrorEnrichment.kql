@@ -1,0 +1,9 @@
+let Errors = materialize (
+_GetWatchlist('AzureErr') 
+| project SearchKey, Message
+);
+SigninLogs
+| where TimeGenerated > ago(1h)
+| lookup kind=leftouter Errors on $left.ResultType == $right.SearchKey
+| extend ResultDescription = iff(ResultDescription == "Other" or isempty(ResultDescription), Message, ResultDescription)
+| project-away Message
