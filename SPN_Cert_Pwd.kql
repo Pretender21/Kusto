@@ -1,0 +1,45 @@
+let ActorWhitelisting = dynamic(["3b528577-4014-4859-9033-902ec52d3dc6"]);
+let KeysBefore = 
+AuditLogs
+|where OperationName  == "Update application – Certificates and secrets management "
+| extend ActorType = iff(isempty(tostring(parse_json(tostring(InitiatedBy.user)).userPrincipalName)),"App", "User")
+| extend Actor = iff(isempty(tostring(parse_json(tostring(InitiatedBy.user)).userPrincipalName)),(tostring(parse_json(tostring(InitiatedBy.app)).displayName)), (tostring(parse_json(tostring(InitiatedBy.user)).userPrincipalName)))
+| extend ActorID = iff(isempty(tostring(parse_json(tostring(InitiatedBy.user)).id)),(tostring(parse_json(tostring(InitiatedBy.app)).servicePrincipalId)), (tostring(parse_json(tostring(InitiatedBy.user)).id)))
+| extend SPN_ID = tostring(TargetResources[0].id)
+| extend SPN = tostring(TargetResources[0].displayName)
+//| where SPN == "Azure DevOps - Global EDB"
+| extend ActorIP = tostring(parse_json(tostring(InitiatedBy.user)).ipAddress)
+| extend Secrets = parse_json(tostring(parse_json(tostring(TargetResources[0].modifiedProperties))[0].oldValue))
+| mv-expand Secrets
+| extend Secrets = tostring(Secrets)
+//| extend SecretsNEW = parse_json(tostring(parse_json(tostring(TargetResources[0].modifiedProperties))[0].newValue))
+| project TimeGenerated, Actor, ActorID, ActorIP, SPN, SPN_ID, Secrets;
+let KeysAfter =
+AuditLogs
+|where OperationName  == "Update application – Certificates and secrets management "
+| extend ActorType = iff(isempty(tostring(parse_json(tostring(InitiatedBy.user)).userPrincipalName)),"App", "User")
+| extend Actor = iff(isempty(tostring(parse_json(tostring(InitiatedBy.user)).userPrincipalName)),(tostring(parse_json(tostring(InitiatedBy.app)).displayName)), (tostring(parse_json(tostring(InitiatedBy.user)).userPrincipalName)))
+| extend ActorID = iff(isempty(tostring(parse_json(tostring(InitiatedBy.user)).id)),(tostring(parse_json(tostring(InitiatedBy.app)).servicePrincipalId)), (tostring(parse_json(tostring(InitiatedBy.user)).id)))
+| extend SPN_ID = tostring(TargetResources[0].id)
+| extend SPN = tostring(TargetResources[0].displayName)
+//| where SPN == "Azure DevOps - Global EDB"
+| extend ActorIP = tostring(parse_json(tostring(InitiatedBy.user)).ipAddress)
+| extend Secrets = parse_json(tostring(parse_json(tostring(TargetResources[0].modifiedProperties))[0].newValue))
+| mv-expand Secrets
+| extend Secrets = tostring(Secrets)
+| project TimeGenerated, Actor, ActorID, ActorIP, SPN, SPN_ID, Secrets;
+let Removed = 
+KeysAfter
+| join kind=rightanti KeysBefore on Secrets
+| extend Operation = "Removed";
+let Added = 
+KeysAfter
+| join kind=leftanti KeysBefore on Secrets
+| extend Operation = "Added";
+union Removed, Added
+//| extend Secret
+| extend SecretType = (split(split(Secrets, ",")[1],"=")[1])
+| extend SecretName = replace_string((replace_string(tostring(split(Secrets, ",")[-1]),"DisplayName=","")),"]","")
+| extend Secrets = iff(isempty(SecretName), SecretType, (strcat(SecretType," (",SecretName,")")))
+| extend Severity = iff(Actor in (ActorWhitelisting),"Informational", "Medium")
+| project-away SecretName

@@ -1,0 +1,6 @@
+SigninLogs
+| where AuthenticationProtocol in ("deviceCode","authenticationTransfer")
+| summarize
+    ['Count']=count(),
+    Events = make_bag(bag_pack(tostring(TimeGenerated),tostring(AuthenticationProtocol)))
+    by UserPrincipalName

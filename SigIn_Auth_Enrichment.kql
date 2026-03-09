@@ -1,0 +1,2 @@
+//Authentication method and result Enrichment
+| extend AuthResult =  iff(isnotempty(tostring(parse_json(AuthenticationDetails)[0].authenticationStepResultDetail)), strcat_delim("->", tostring(parse_json(AuthenticationDetails)[0].authenticationMethod),tostring(parse_json(AuthenticationDetails)[0].authenticationStepResultDetail)),"")

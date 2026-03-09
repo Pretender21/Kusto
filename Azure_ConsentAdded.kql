@@ -1,0 +1,66 @@
+let CriticalRightsExceptWrite = dynamic(["user_impersonation", "ewh.all", "BitlockerKey.Read.All", "Mail.Send", "OnPremDirectorySynchronization.Read.All"]);
+let SPNs = (externaldata(SPN:string,Id:string)
+    [
+    @"https://kfjoakdoqoclpoasd.blob.core.windows.net/koasxloqdpdq/jskofoalqpkvdk.json?sp=r&st=2023-11-08T17:14:40Z&se=2053-11-09T01:14:40Z&spr=https&sv=2022-11-02&sr=b&sig=w0Xo45RkjseUOJ0TrH89GMutxho17FGvZtrIOMWWfvg%3D"
+    ] with (format="multijson"));
+let ServicePrincipalConsent = 
+AuditLogs
+| where OperationName has "Add app role assignment to service principal"
+| extend x = tostring(parse_json(tostring(parse_json(tostring(TargetResources[0].modifiedProperties))[1].newValue)))
+| extend PermissionsGrantedNew = tostring(split(x, ' '))
+| extend x = tostring(parse_json(tostring(parse_json(tostring(TargetResources[0].modifiedProperties))[1].oldValue)))
+| extend PermissionsGrantedOld = tostring(split(x, ' '))
+| extend Actor = tostring(parse_json(tostring(InitiatedBy.user)).userPrincipalName)
+| extend Activity = strcat("Application access added to application")
+| extend ServicePrincipalId = tostring(TargetResources[1].id)
+| extend SPN = tostring(parse_json(tostring(parse_json(tostring(TargetResources[0].modifiedProperties))[6].newValue)))
+| extend APIName = tostring(TargetResources[0].displayName)
+| extend ActorID = tostring(parse_json(tostring(InitiatedBy.user)).id)
+| extend ActorIP = tostring(parse_json(tostring(InitiatedBy.user)).ipAddress)
+| lookup kind = leftouter  (SPNs)
+    on $left.ServicePrincipalId == $right.Id
+| project APIName, Actor, SPN, ServicePrincipalId, PermissionsGrantedOld, PermissionsGrantedNew, Type, TimeGenerated, ActorIP, ActorID
+| extend Type = "Application";
+let EnterpriseAppConsent = AuditLogs
+| where OperationName in ("Add app role assignment to service principal","Add delegated permission grant")
+| extend APIName = tostring(TargetResources[0].displayName)
+| extend ServicePrincipalId = tostring(TargetResources[1].id)
+| where parse_json(tostring(TargetResources[0].modifiedProperties))[0].displayName == "DelegatedPermissionGrant.Scope"
+| mv-expand TargetResources[0].modifiedProperties
+| where TargetResources_0_modifiedProperties.displayName == "DelegatedPermissionGrant.Scope"
+| extend x = tostring(parse_json(tostring(TargetResources_0_modifiedProperties.newValue)))
+| extend PermissionsGrantedNew = tostring(split(x, ' '))
+| extend x = tostring(parse_json(tostring(TargetResources_0_modifiedProperties.oldValue)))
+| extend PermissionsGrantedOld = tostring(split(x, ' '))
+| extend Actor = tostring(parse_json(tostring(InitiatedBy.user)).userPrincipalName)
+| extend ConsentType = tostring(parse_json(tostring(parse_json(tostring(TargetResources[0].modifiedProperties))[1].newValue)))
+| where ConsentType == "AllPrincipals"
+| extend ActorID = tostring(parse_json(tostring(InitiatedBy.user)).id)
+| extend ActorIP = tostring(parse_json(tostring(InitiatedBy.user)).ipAddress)
+| lookup kind = leftouter  (SPNs)
+    on $left.ServicePrincipalId == $right.Id
+| project APIName, Actor, SPN, ServicePrincipalId, PermissionsGrantedOld, PermissionsGrantedNew, Type, TimeGenerated, ActorID, ActorIP
+| extend Type = "Delegated";
+let RightsBefore = 
+union EnterpriseAppConsent, ServicePrincipalConsent
+| project APIName, Actor, SPN, ServicePrincipalId, Rights = todynamic(PermissionsGrantedOld),Type, TimeGenerated, ActorID, ActorIP
+| mv-expand Rights
+| where isnotempty(Rights)
+| project APIName, Actor, SPN, ServicePrincipalId, Rights = strcat(ServicePrincipalId,";",tostring(Rights)), Type, TimeGenerated, ActorID, ActorIP;
+let RightsAfter =
+union EnterpriseAppConsent, ServicePrincipalConsent
+| project APIName, Actor, SPN, ServicePrincipalId, Rights = todynamic(PermissionsGrantedNew), Type, TimeGenerated, ActorID, ActorIP
+| mv-expand Rights
+| where isnotempty(Rights)
+| project APIName, Actor, SPN, ServicePrincipalId, Rights = strcat(ServicePrincipalId,";",tostring(Rights)), Type, TimeGenerated, ActorID, ActorIP;
+let Removed = 
+RightsAfter
+| join kind=rightanti RightsBefore on Rights
+| extend Operation = "Removed";
+let Added = 
+RightsAfter
+| join kind=leftanti RightsBefore on Rights
+| extend Operation = "Added";
+union Added, Removed
+| project TimeGenerated, APIName, Actor, ActorID, ActorIP, SPN, ServicePrincipalId, Operation, Type, Rights = split(Rights,";")[1]
+| extend Severity = iff((Rights in (CriticalRightsExceptWrite)) or (Rights contains "Write") , "High", "Medium")

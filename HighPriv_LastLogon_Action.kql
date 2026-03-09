@@ -1,0 +1,33 @@
+//
+let timerange=180d;
+let timeframe=30d;
+let Admins = IdentityInfo
+| where TimeGenerated > ago(timeframe)
+| where isnotempty(AssignedRoles)
+| where AssignedRoles != "[]"
+| summarize AssignedRoles = make_set(AssignedRoles) by UserPrincipalName = AccountUPN
+| sort by UserPrincipalName;
+SigninLogs
+| where TimeGenerated > ago(timerange)
+| union AADNonInteractiveUserSignInLogs
+| where TimeGenerated > ago(timerange)
+| where UserPrincipalName in (Admins)
+| where isnotempty(UserPrincipalName)
+| summarize arg_max(TimeGenerated, *) by UserPrincipalName
+| project UserPrincipalName, LastLogon = TimeGenerated
+| join kind=fullouter (
+    AuditLogs
+    | where TimeGenerated > ago(timerange)
+    | where OperationName !endswith "(PIM activation)"
+    | extend UserPrincipalName = tostring(parse_json(tostring(InitiatedBy.user)).userPrincipalName)
+    | where isnotempty(UserPrincipalName)
+    | where UserPrincipalName in (Admins)
+    | summarize arg_max(TimeGenerated, *) by UserPrincipalName
+    | project  UserPrincipalName, OperationName, OperationTime  = TimeGenerated
+    )
+    on UserPrincipalName
+    | project-away  UserPrincipalName1
+    | where isnotempty(UserPrincipalName)
+    | sort by UserPrincipalName asc
+    | join kind=fullouter (Admins) on UserPrincipalName
+    | sort by UserPrincipalName

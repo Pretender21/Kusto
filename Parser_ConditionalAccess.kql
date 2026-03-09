@@ -1,0 +1,3 @@
+| mv-apply  ConditionalAccessPolicies_CF on (
+    summarize  CA = make_bag(bag_pack(tostring(ConditionalAccessPolicies_CF.displayName),tostring(ConditionalAccessPolicies_CF.result)))
+)

@@ -1,0 +1,6 @@
+// NetworkLocation parser
+| mv-apply todynamic(NetworkLocationDetails) on (
+    where isnotempty(NetworkLocationDetails.networkNames)
+    | summarize
+        NetLocations = make_set(NetworkLocationDetails.networkNames)
+    )

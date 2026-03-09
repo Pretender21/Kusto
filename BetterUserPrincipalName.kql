@@ -1,0 +1,11 @@
+let TimeRange = 30d;
+let SID_Users =
+IdentityInfo
+| where TimeGenerated > ago(TimeRange)
+| extend AccountUPN = tolower(AccountUPN)
+| distinct AccountUPN, AccountObjectId, AccountDisplayName
+;
+SigninLogs
+| where TimeGenerated > ago(TimeRange)
+| lookup kind=leftouter SID_Users on $left.UserId == $right.AccountObjectId
+| extend UserPrincipalName = AccountUPN, UserDisplayName = AccountDisplayName

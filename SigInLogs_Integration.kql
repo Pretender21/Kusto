@@ -1,0 +1,15 @@
+let NISigninLogs = materialize (
+    AADNonInteractiveUserSignInLogs
+    | where TimeGenerated > ago (TimeRange)
+    | where UserPrincipalName == User
+    | extend DeviceDetail = todynamic(DeviceDetail),ConditionalAccessPolicies = todynamic(ConditionalAccessPolicies),LocationDetails = todynamic(LocationDetails),Status = todynamic(Status),MfaDetail = todynamic(MfaDetail),ProcessingTimeInMilliseconds = ProcessingTimeInMs, Agent = todynamic(Agent)
+    | project-away ProcessingTimeInMs
+);
+let Logs = materialize (
+SigninLogs
+| where TimeGenerated > ago (TimeRange)
+| where UserPrincipalName == User
+| union  NISigninLogs
+);
+Logs
+| limit 1

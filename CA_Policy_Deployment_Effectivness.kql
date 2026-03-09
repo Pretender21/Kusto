@@ -1,0 +1,24 @@
+let TimeRange = 2d;
+// Row to add
+let newRow = datatable(Result:string, TimeGenerated:datetime , Accumulated:long)
+[
+    "failure", datetime(2025-07-10 22:00:00), 0,
+    "success", datetime(2025-07-10 22:00:00), 0
+];
+SignInLogs
+//Parser_ConditionalAccess.kql
+| where TimeGenerated >= ago(TimeRange)
+| where ConditionalAccessPolicies_CF has "[ZERO TRUST] Apps available only from trusted devices"
+| mv-apply  ConditionalAccessPolicies_CF on (
+    summarize  CA = make_bag(bag_pack(tostring(ConditionalAccessPolicies_CF.displayName),tostring(ConditionalAccessPolicies_CF.result)))
+)
+| lookup kind=leftouter SID_Users on $left.UserId == $right.AccountObjectId //BetterUserPrincipalName.kql
+| extend UserPrincipalName = AccountUPN
+| project TimeGenerated,UserPrincipalName, CA, DeviceDetail, IPAddress, NetworkLocationDetails, AppDisplayName, ResourceDisplayName, ResultType, ResultDescription
+| summarize  UsersCNT = dcount(UserPrincipalName), FailureUsers = make_set_if(UserPrincipalName, tostring(CA.["[ZERO TRUST] Apps available only from trusted devices"]) == "failure") by Result = tostring(CA.["[ZERO TRUST] Apps available only from trusted devices"]), bin(TimeGenerated, 15m)
+//| summarize  UsersCNT = count() by Result = tostring(CA.["[ZERO TRUST] Apps available only from trusted devices"]), bin(TimeGenerated, 15m)
+| sort by Result asc, TimeGenerated asc
+| extend Accumulated=row_cumsum(UsersCNT, Result != prev(Result))
+| project-away  UsersCNT
+| union newRow
+| render timechart

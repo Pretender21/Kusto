@@ -1,0 +1,23 @@
+let AzureIPRangesPublicCloud = (externaldata(changeNumber:string,cloud:string, values: dynamic)
+[@"https://kfjoakdoqoclpoasd.blob.core.windows.net/lkasdsd/ServiceTags_Public.json?sp=r&st=2023-11-07T11:01:50Z&se=2053-11-07T19:01:50Z&spr=https&sv=2022-11-02&sr=b&sig=0qje9Gpxf4WuWiS1kk7L3jUt1gVY3fgJkvP%2FE7w%2BOeI%3D"]
+with (format="multijson"))
+| mv-expand values
+| extend Subnet = values.properties.addressPrefixes
+| mv-expand Subnet
+| summarize Subnets=make_list(Subnet);
+let PrivateIPregex = @'^127\.|^10\.|^172\.1[6-9]\.|^172\.2[0-9]\.|^172\.3[0-1]\.|^192\.168\.';
+AADServicePrincipalSignInLogs
+//| where TimeGenerated > ago(1h)
+| lookup kind = leftouter  (_GetWatchlist('SPN')
+    | project SearchKey, Subnets)
+    on $left.ServicePrincipalId == $right.SearchKey
+| extend SubnetsDyn = todynamic(Subnets)
+| extend inRange = ipv4_is_in_any_range(IPAddress, SubnetsDyn)
+| where inRange == false
+| extend NetworkSPN = strcat(ServicePrincipalName, " -> ", IPAddress)
+| extend DestinationIpType = iff(IPAddress matches regex PrivateIPregex,"private","public")
+//| extend inAzure = ipv4_is_in_any_range(IPAddress, toscalar(AzureIPRangesPublicCloud))
+| extend AzureAllowed = iff((parse_json(Subnets)[0] == "Azure"), iff(((ipv4_is_in_any_range(IPAddress, toscalar(AzureIPRangesPublicCloud))) == true),true,false), false)
+| where AzureAllowed == false
+| project ServicePrincipalName, ServicePrincipalId, IPAddress, Subnets, AzureAllowed, ResourceIdentity
+| summarize LogonCounts = count() by ServicePrincipalName, ServicePrincipalId, Subnets, IPAddress
