@@ -1,6 +1,6 @@
 //comparing two arrays
 set_difference(array1, array2)
-//cleaninmg array by removing empty 
+//cleaninmg array by removing empty lambda separators might be ':' or '->'
 | extend cleaned_array = array_filter(array, x -> x != "")
 //OR
 | extend cleaned_array = set_difference(array, dynamic([null,""]))
