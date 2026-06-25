@@ -1,5 +1,7 @@
 //comparing two arrays
 set_difference(array1, array2)
+//BEST
+set_difference(Subscriptions, dynamic([""]))
 //cleaninmg array by removing empty lambda separators might be ':' or '->'
 | extend cleaned_array = array_filter(array, x -> x != "")
 //OR better more deterministic way to remove empty values from array and deduplicate automaticly, also faster than array_filter
